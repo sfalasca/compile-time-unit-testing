@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  native:
+    name: native (${{ matrix.compiler }}, C++${{ matrix.std }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [g++, clang++]
+        std: [20, 23]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -DCMAKE_CXX_COMPILER=${{ matrix.compiler }}
+          -DCMAKE_CXX_STANDARD=${{ matrix.std }}
+          -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build
+        run: cmake --build build -j
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  static-analysis:
+    name: static analysis (scan-build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install clang-tools
+        run: sudo apt-get update && sudo apt-get install -y clang-tools
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_CXX_STANDARD=23
+
+      - name: Build once (populate object files so the target has something to re-scan)
+        run: cmake --build build -j
+
+      - name: Run static_analysis target
+        run: cmake --build build --target static_analysis
+
+  docker-matrix:
+    name: docker (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - gcc-10
+          - gcc-11
+          - gcc-12
+          - gcc-13
+          - gcc-14
+          - gcc-15
+          - clang-13
+          - clang-14
+          - clang-15
+          - clang-16
+          - clang-17
+          - clang-18
+          - clang-19
+          - clang-20
+          - clang-21
+          - esp32
+          - stm32
+          - riscv32
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: docker build -f docker/${{ matrix.target }}.Dockerfile
+        run: docker build -f docker/${{ matrix.target }}.Dockerfile -t ctut-${{ matrix.target }} .
