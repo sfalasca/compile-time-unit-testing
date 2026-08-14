@@ -1,5 +1,7 @@
 # compile-time-unit-testing
 
+[Project page](https://falasca.engineering/compile-time-unit-testing/)
+
 A single-header C++20 library for compile-time unit testing: write an
 ordinary `constexpr bool test_xxx()` function using the `expect_*`
 assertion family, then `static_assert(test_xxx())`. Failures are
@@ -100,6 +102,11 @@ ctest --test-dir build --output-on-failure
 Static analysis: `cmake -DCTUT_ENABLE_CLANG_TIDY=ON -DCTUT_ENABLE_CPPCHECK=ON ..` (both opt-in, auto-skip with a warning if the tool isn't installed), plus an always-registered `cmake --build build --target static_analysis` running the Clang Static Analyzer (`scan-build`) over the whole build.
 
 Compiler/platform matrix: see [`docker/README.md`](docker/README.md). `docker/build-matrix.sh` builds every Dockerfile in `docker/` and reports pass/fail.
+
+## Author
+
+Written by [Stefano Falasca](https://falasca.engineering), an embedded software consultant
+focused on safety-critical systems and agent-ready verification.
 
 ## License
 
