@@ -4,8 +4,7 @@
 # Standalone image: `docker build -f docker/gcc-14.Dockerfile -t ctut-gcc14 .`
 # from the repository root. Configures, builds, and runs the full ctest
 # suite. CMAKE_CXX_STANDARD=23 is a *request*: CMake caps it to whatever
-# this GCC actually supports, exercising the <format>/std::formattable
-# feature gate in include/compile_time_ut.hpp either way (see there).
+# this GCC actually supports.
 FROM gcc:14
 
 # The base image's apt-provided cmake is frequently older than this

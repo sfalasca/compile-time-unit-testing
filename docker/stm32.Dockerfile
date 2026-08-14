@@ -11,7 +11,7 @@
 # Bare-metal Cortex-M firmware conventionally disables C++ exceptions
 # and RTTI to save flash, so this is exactly the -fno-exceptions path
 # exercised elsewhere in the matrix (see include/compile_time_ut.hpp's
-# detail::fail_at_runtime()).
+# detail::fail_constant_eval()).
 #
 # Build: `docker build -f docker/stm32.Dockerfile -t ctut-stm32 .`
 FROM ubuntu:24.04

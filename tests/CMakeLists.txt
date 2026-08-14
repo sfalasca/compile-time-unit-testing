@@ -7,11 +7,24 @@ target_compile_options(ctut_warnings INTERFACE
         -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion
         -Wold-style-cast -Wcast-qual -Wnon-virtual-dtor -Woverloaded-virtual
         -Wnull-dereference -Wdouble-promotion -Wuseless-cast -Wlogical-op
-        -Wduplicated-cond -Wduplicated-branches -Werror>
+        -Wduplicated-cond -Wduplicated-branches
+        # See the matching Clang branch below for why: older GCC (10-13)
+        # also flags a discarded consteval expect_* call as "statement
+        # has no effect" on the std::span overloads specifically.
+        -Wno-unused-value
+        -Werror>
     $<$<CXX_COMPILER_ID:Clang,AppleClang>:
         -Wall -Wextra -Wpedantic -Wshadow -Wconversion -Wsign-conversion
         -Wold-style-cast -Wcast-qual -Wnon-virtual-dtor -Woverloaded-virtual
-        -Wnull-dereference -Wdouble-promotion -Werror>
+        -Wnull-dereference -Wdouble-promotion
+        # Every expect_* is consteval, so Clang folds a passing call to
+        # a compile-time-known bool and flags the discarded result the
+        # same as a bare literal statement (GCC doesn't). Calling
+        # expect_* as a bare statement is the intentional, documented
+        # usage — the return value only ever carries information on
+        # the failure path, which halts evaluation before returning.
+        -Wno-unused-value
+        -Werror>
     $<$<CXX_COMPILER_ID:MSVC>:/W4 /WX>
 )
 
@@ -21,47 +34,15 @@ target_compile_options(ctut_warnings INTERFACE
 add_library(basic_tests OBJECT basic_tests.cpp)
 target_link_libraries(basic_tests PRIVATE compile_time_ut ctut_warnings)
 
-# precondition_tests.cpp: executable with runtime tests
-add_executable(precondition_tests precondition_tests.cpp)
-target_link_libraries(precondition_tests PRIVATE compile_time_ut ctut_warnings)
-add_test(NAME precondition_tests COMMAND precondition_tests)
-
-# noexcept_tests.cpp: proves the whole header (expect_XXX, CTUT_EXPECT_XXX,
-# preconditions/postconditions/invariants) compiles under -fno-exceptions,
-# and that a genuine runtime failure reports + aborts instead of relying
-# on throw/catch. Uses whatever C++ standard the build is configured
-# with (no forced cxx_std_23: none of this needs <format>, which is used
-# opportunistically when available).
-add_executable(noexcept_tests noexcept_tests.cpp)
+# noexcept_tests.cpp: proves the whole compile-time expect_XXX surface
+# compiles under -fno-exceptions. Compile-only, like basic_tests: every
+# expect_* is consteval, so there's no genuine-runtime call path left
+# to build an executable around. Uses whatever C++ standard the build
+# is configured with.
+add_library(noexcept_tests OBJECT noexcept_tests.cpp)
 target_link_libraries(noexcept_tests PRIVATE compile_time_ut ctut_warnings)
 target_compile_options(noexcept_tests PRIVATE
     $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-fno-exceptions>)
-add_test(NAME noexcept_tests
-    COMMAND ${CMAKE_COMMAND}
-        -DEXE=$<TARGET_FILE:noexcept_tests>
-        # "expect_eq failed" is always printed; the ": 9 vs 8" value
-        # suffix only appears when <format>/std::formattable are
-        # available (C++23), so the check below only requires the
-        # substring common to both outputs.
-        "-DEXPECT_MESSAGE=expect_eq failed"
-        -P ${CMAKE_CURRENT_SOURCE_DIR}/run_noexcept_abort_check.cmake)
-
-# thread_safety_tests.cpp: stresses detail::violation_handler_ref()
-# (std::atomic<ViolationHandler>) with concurrent set_violation_handler()
-# writers and concurrent contract-violation readers under
-# ThreadSanitizer. A clean run (no "data race" report, exit 0) is the
-# pass criterion; verified manually (see the file's trailing comment)
-# that reverting the atomic to a bare pointer makes TSan catch it
-# within the first few iterations.
-add_executable(thread_safety_tests thread_safety_tests.cpp)
-target_link_libraries(thread_safety_tests PRIVATE compile_time_ut ctut_warnings)
-find_package(Threads REQUIRED)
-target_link_libraries(thread_safety_tests PRIVATE Threads::Threads)
-target_compile_options(thread_safety_tests PRIVATE
-    $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-fsanitize=thread -g -O1>)
-target_link_options(thread_safety_tests PRIVATE
-    $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-fsanitize=thread>)
-add_test(NAME thread_safety_tests COMMAND thread_safety_tests)
 
 # --- Expected-compile-failure test helper ---
 
@@ -153,6 +134,20 @@ add_compile_failure_test(val_expect_lt_3_2
     expected_failures/val_expect_lt_3_2.cpp LABELS val)
 add_compile_failure_test(val_expect_ge_1_2
     expected_failures/val_expect_ge_1_2.cpp LABELS val)
+# expect_near itself only exists when CTUT_HAS_FLOAT_NTTP; without it,
+# these would still compile-fail (undeclared expect_near) and so still
+# report as passing WILL_FAIL tests, but for the wrong reason. Skipped
+# entirely instead so a real regression can't hide behind that.
+if(CTUT_HAS_FLOAT_NTTP)
+    add_compile_failure_test(nttp_expect_near_10_20_5
+        expected_failures/nttp_expect_near_10_20_5.cpp LABELS nttp)
+    add_compile_failure_test(val_expect_near_10_20_5
+        expected_failures/val_expect_near_10_20_5.cpp LABELS val)
+    add_compile_failure_test(nttp_expect_near_float_fail
+        expected_failures/nttp_expect_near_float_fail.cpp LABELS nttp)
+    add_compile_failure_test(val_expect_near_float_fail
+        expected_failures/val_expect_near_float_fail.cpp LABELS val)
+endif()
 
 # --- Category D: Array size mismatch expected failures ---
 
@@ -169,6 +164,8 @@ add_compile_failure_test(array_eq_mismatch_index1
     expected_failures/array_eq_mismatch_index1.cpp LABELS array)
 add_compile_failure_test(array_eq_mismatch_index2
     expected_failures/array_eq_mismatch_index2.cpp LABELS array)
+add_compile_failure_test(array_eq_mismatch_large
+    expected_failures/array_eq_mismatch_large.cpp LABELS array)
 
 # --- Category F: Array ordering expected failures ---
 
@@ -181,32 +178,11 @@ add_compile_failure_test(array_gt_fail
 add_compile_failure_test(array_ge_fail
     expected_failures/array_ge_fail.cpp LABELS array)
 
-# --- Category G: Contract expected failures ---
+# --- Category H: val<> case-2 expected failures (value content verified) ---
 
-add_compile_failure_test(contract_precondition_safe
-    expected_failures/contract_precondition_safe.cpp LABELS contract)
-add_compile_failure_test(contract_precondition
-    expected_failures/contract_precondition.cpp LABELS contract)
-add_compile_failure_test(contract_precondition_aggressive
-    expected_failures/contract_precondition_aggressive.cpp LABELS contract)
-add_compile_failure_test(contract_postcondition_safe
-    expected_failures/contract_postcondition_safe.cpp LABELS contract)
-add_compile_failure_test(contract_postcondition
-    expected_failures/contract_postcondition.cpp LABELS contract)
-add_compile_failure_test(contract_postcondition_aggressive
-    expected_failures/contract_postcondition_aggressive.cpp LABELS contract)
-add_compile_failure_test(contract_invariant_safe
-    expected_failures/contract_invariant_safe.cpp LABELS contract)
-add_compile_failure_test(contract_invariant
-    expected_failures/contract_invariant.cpp LABELS contract)
-add_compile_failure_test(contract_invariant_aggressive
-    expected_failures/contract_invariant_aggressive.cpp LABELS contract)
-
-# --- Category H: CTUT_EXPECT_XXX macro expected failures (value content verified) ---
-
-add_compile_failure_test_with_values(ctut_case2_expect_eq
-    expected_failures/ctut_case2_expect_eq.cpp LABELS ctut
+add_compile_failure_test_with_values(val_case2_expect_eq
+    expected_failures/val_case2_expect_eq.cpp LABELS val
     EXPECT 7331 8442)
-add_compile_failure_test_with_values(ctut_case2_expect_true
-    expected_failures/ctut_case2_expect_true.cpp LABELS ctut
+add_compile_failure_test_with_values(val_case2_expect_ge
+    expected_failures/val_case2_expect_ge.cpp LABELS val
     EXPECT 6217 9999)

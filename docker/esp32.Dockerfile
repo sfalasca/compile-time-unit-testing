@@ -11,7 +11,7 @@
 # ESP-IDF firmware conventionally disables C++ exceptions
 # (CONFIG_COMPILER_CXX_EXCEPTIONS is off by default) to save flash, so
 # this is exactly the -fno-exceptions path exercised elsewhere in the
-# matrix (see include/compile_time_ut.hpp's detail::fail_at_runtime()).
+# matrix (see include/compile_time_ut.hpp's detail::fail_constant_eval()).
 #
 # Build: `docker build -f docker/esp32.Dockerfile -t ctut-esp32 .`
 FROM espressif/idf:release-v5.4

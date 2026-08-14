@@ -10,7 +10,6 @@ Checks: >
   cppcoreguidelines-slicing,
   cppcoreguidelines-pro-type-static-cast-downcast,
   -bugprone-easily-swappable-parameters,
-  -cppcoreguidelines-macro-usage,
   -misc-non-private-member-variables-in-classes,
   -modernize-use-trailing-return-type,
   -readability-identifier-length,

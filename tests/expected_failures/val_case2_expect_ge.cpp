@@ -4,7 +4,7 @@ using namespace CompileTimeUnitTesting;
 constexpr int my_f() { return 6217; }
 
 constexpr bool test_my_f() {
-    CTUT_EXPECT_GE(my_f(), 9999);
+    expect_ge(val<my_f()>, val<9999>);
     return true;
 }
 

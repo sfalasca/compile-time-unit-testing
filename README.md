@@ -1,18 +1,37 @@
 # compile-time-unit-testing
 
-A single-header C++20 library for two related things:
+A single-header C++20 library for compile-time unit testing: write an
+ordinary `constexpr bool test_xxx()` function using the `expect_*`
+assertion family, then `static_assert(test_xxx())`. Failures are
+compiler errors, at build time, with the actual argument values shown
+in the diagnostic.
 
-1. **Lakos-style contracts** (`precondition`/`postcondition`/`invariant`) that run identically at compile time (inside `constexpr` evaluation) and at genuine runtime.
-2. **Compile-time unit tests**: write an ordinary `constexpr bool test_xxx()` function using the `expect_*` assertion family, then `static_assert(test_xxx())` — failures are compiler errors, at build time, with the actual argument values shown in the diagnostic.
-
-MIT licensed. Header-only: `#include "compile_time_ut.hpp"`, nothing to link.
+MIT licensed. Header-only: `#include "compile_time_ut.hpp"`, nothing to
+link.
 
 ## Requirements
 
 - **C++20 minimum.** `target_compile_features(compile_time_ut INTERFACE cxx_std_20)` in this repo's `CMakeLists.txt`.
-- **`<source_location>`** (GCC 11+ / Clang 17ish+ with libc++) is used opportunistically for contract-violation file:line reporting; gated behind `__has_include`, falls back cleanly without it.
-- Verified against GCC 10–15 and Clang 13–21, plus ESP32 (Xtensa), STM32 (Cortex-M4), and RISC-V (rv32imac) bare-metal cross-compilers — see [`docker/README.md`](docker/README.md) for the full matrix and how to run it yourself.
+- Tested against GCC 10–15 and Clang 13–21, plus ESP32 (Xtensa), STM32 (Cortex-M4), and RISC-V (rv32imac) bare-metal cross-compilers. See [`docker/README.md`](docker/README.md) for the full matrix and how to run it yourself. **`expect_near` needs GCC 11+ or Clang 18+** (floating-point non-type template parameters, P1907R1); it isn't declared at all below that, on any argument types, since forming its template-id is ill-formed without that support. Everything else works down to GCC 10 / Clang 13.
 - Works with `-fno-exceptions` (embedded/no-exceptions builds get `abort()` instead of `throw`; see below).
+
+## Adding this to your project
+
+The recommended way to consume this library is CMake's `FetchContent`:
+
+```cmake
+include(FetchContent)
+FetchContent_Declare(
+    compile_time_ut
+    GIT_REPOSITORY <this-repo-url>
+    GIT_TAG        <commit-or-tag>
+)
+FetchContent_MakeAvailable(compile_time_ut)
+
+target_link_libraries(your_target PRIVATE compile_time_ut)
+```
+
+`compile_time_ut` is an `INTERFACE` library, header-only with nothing to build or install, so that's the entire integration: no `install()`/`find_package()` step, no prebuilt artifact to manage, and it pins to a specific commit like any other dependency. If you'd rather not take a CMake dependency at all, vendoring `include/compile_time_ut.hpp` directly and adding it to your own include path works just as well.
 
 ## Quick start
 
@@ -23,8 +42,8 @@ using namespace CompileTimeUnitTesting;
 constexpr int square(int x) { return x * x; }
 
 constexpr bool test_square() {
-    CTUT_EXPECT_EQ(square(3), 9);
-    CTUT_EXPECT_TRUE(square(-2) > 0);
+    expect_eq(val<square(3)>, val<9>);
+    expect_true(val<(square(-2) > 0)>);
     return true;
 }
 
@@ -33,95 +52,40 @@ static_assert(test_square());   // fails the build if test_square() returns fals
 
 ## `expect_*` is compile-time-only, on purpose
 
-`expect_true`, `expect_false`, `expect_eq`, `expect_ne`, `expect_lt`, `expect_le`, `expect_gt`, `expect_ge`, `expect_near` (epsilon-tolerant, for floats) — **there is no plain `expect_eq(a, b)` overload that accepts arbitrary runtime values.** Every call form requires its arguments to be constant expressions:
+`expect_true`, `expect_false`, `expect_eq`, `expect_ne`, `expect_lt`, `expect_le`, `expect_gt`, `expect_ge`, `expect_near` (epsilon-tolerant, for floats). **There is no plain `expect_eq(a, b)` overload that accepts arbitrary runtime values, and every `expect_*` is `consteval`** — calling one outside a constant expression (e.g. from ordinary runtime code) is a compile error, not something that happens to compile and just work. Every call form requires its arguments to be constant expressions:
 
 | Form | Example |
 |---|---|
 | Explicit NTTP | `expect_eq<f(), 42>()` |
 | `val<>`-wrapped | `expect_eq(val<f()>, val<42>)` |
-| `CTUT_EXPECT_*` macro | `CTUT_EXPECT_EQ(f(), 42)` |
 
-This isn't an oversight — it's the only way to get argument values into a compiler diagnostic at all. A function parameter is never usable as a template argument, in any C++ context, even inside `consteval` functions manifestly constant-evaluated at the call site (verified directly against both GCC and Clang before settling on this design, not assumed). The only mechanism that works is making the arguments template arguments *at the call site itself* — which is what the NTTP, `val<>`, and macro forms each do, and what a plain `expect_eq(const T&, const U&)` overload structurally cannot.
+This isn't an oversight, it's the only way to get argument values into a compiler diagnostic at all. A function parameter is never usable as a template argument, in any C++ context, not even inside `consteval` functions that are manifestly constant-evaluated at the call site. The only thing that works is turning the arguments into template arguments *at the call site itself*, which is exactly what the NTTP and `val<>` forms each do, and what a plain `expect_eq(const T&, const U&)` overload structurally can't.
 
-**`CTUT_EXPECT_*` is the ergonomic default**: it's a macro that textually rewrites `CTUT_EXPECT_EQ(a, b)` into `expect_eq(val<(a)>, val<(b)>)` before the compiler ever sees a function call, so ordinary-looking test code gets full value diagnostics without hand-wrapping every argument.
+**`val<>` is the form to reach for by default.** `expect_eq<f(), 42>()` only works when both arguments are directly nameable as template arguments; `val<>` accepts any constant expression, including one that reads a local `constexpr` variable, so it's the more general form: `expect_eq(val<f()>, val<42>)`.
 
-Available macros: `CTUT_EXPECT_TRUE`, `CTUT_EXPECT_FALSE`, `CTUT_EXPECT_EQ`, `CTUT_EXPECT_NE`, `CTUT_EXPECT_LT`, `CTUT_EXPECT_LE`, `CTUT_EXPECT_GT`, `CTUT_EXPECT_GE`, `CTUT_EXPECT_NEAR`.
+A relational operator inside a `val<...>` expression needs its own parens: `val<(a < b)>`, not `val<a < b>`. The compiler otherwise reads the first bare `<`/`>` it meets as the template-argument-list delimiter, not part of the expression — `val<b > a>` fails to parse for exactly this reason. `==`/`!=` don't have this problem and don't need the extra parens.
 
-A local variable used inside one of these macros or NTTP forms must itself be `constexpr` — an ordinary (non-`constexpr`) local, even inside a function being evaluated as a constant expression, is not usable as a template argument either:
+A local variable used inside `val<>` or the NTTP form must itself be `constexpr`. An ordinary (non-`constexpr`) local, even inside a function being evaluated as a constant expression, is not usable as a template argument either:
 
 ```cpp
-constexpr ConstArray a("abc");   // must be constexpr, not just a plain local
-constexpr ConstArray b("abd");
-CTUT_EXPECT_TRUE(a < b);
+constexpr int n = square(3);   // must be constexpr, not just a plain local
+expect_eq(val<n>, val<9>);
 ```
 
 ### Ranges: C arrays, `std::array`, `std::span`
 
-`expect_eq`/`ne`/`lt`/`le`/`gt`/`ge` all have overloads for C arrays, `std::array`, and `std::span`, taking the containers directly (not NTTP-wrapped). C arrays and `std::array` (compile-time size) get full per-index mismatch diagnostics. `std::span` (size may be a runtime value) reports mismatches without a per-index diagnostic but still correctly fails compile-time evaluation. Containers aren't implicitly converted to `std::span` — construct it explicitly: `expect_eq(std::span(v1), std::span(v2))`.
+`expect_eq`/`ne`/`lt`/`le`/`gt`/`ge` all have overloads for C arrays, `std::array`, and `std::span` that take the containers directly, no NTTP-wrapping needed. C arrays and `std::array` (compile-time size) get full per-index mismatch diagnostics. Internally these recursively split the index range in half until each piece is small enough to fold directly, so mismatch reporting scales to arbitrarily large arrays without hitting either `-ftemplate-depth` (one level per recursive split, `O(log2(N))`, not per element) or Clang's `-fbracket-depth` (which caps flat fold-expression size at 256 by default and would otherwise fail to compile past that on Clang specifically); a 2,000-element mismatch is a permanent regression test in `tests/basic_tests.cpp`/`tests/expected_failures/array_eq_mismatch_large.cpp`. Ordinary `-fconstexpr-steps`/`-fconstexpr-ops-limit` limits still apply for pathologically large arrays, same as any other constexpr code. `std::span` (size may be a runtime value) reports mismatches without a per-index diagnostic but still correctly fails compile-time evaluation. Containers aren't implicitly converted to `std::span` (that needs a non-deduced parameter type), so construct it explicitly: `expect_eq(std::span(v1), std::span(v2))`.
 
 ### `expect_near`
 
 ```cpp
-CTUT_EXPECT_NEAR(computed, 1.0, 0.0001);  // |computed - 1.0| <= 0.0001
-expect_near<10, 12, 5>();                 // NTTP form
-```
-
-## Contracts: preconditions, postconditions, invariants
-
-Unlike `expect_*`, contracts are explicitly dual-mode — full checking at compile time (free, since a `constexpr` violation just fails the enclosing `static_assert`) and configurable checking at genuine runtime:
-
-```cpp
-constexpr int divide(int a, int b) {
-    precondition(b != 0);
-    int result = a / b;
-    postcondition(result * b == a);
-    return result;
-}
-```
-
-Three severity tiers, each independently toggleable at runtime:
-
-| Tier | Suffix | Default runtime behavior |
-|---|---|---|
-| `safe` | `_safe` | always on |
-| `normal` | *(no suffix)* | on (this is the **default** `CTUT_ASSERTION_LEVEL`) |
-| `aggressive` | `_aggressive` | off by default |
-
-Override before including the header: `#define CTUT_ASSERTION_LEVEL 3` (or `1`, or `0` to disable everything at runtime — compile-time checking is unaffected regardless).
-
-`testcase(cond)` is the same mechanism at the `safe` tier, meant for lightweight in-function sanity checks.
-
-### Violation handler
-
-```cpp
-void my_handler(const char* kind, const char* file, int line) {
-    log_error("{} at {}:{}", kind, file, line);
-}
-set_violation_handler(my_handler);
-```
-
-`file`/`line` come from `std::source_location::current()`, captured at *your* call site (not inside this header), when the toolchain has `<source_location>`; otherwise they're `""`/`0` — the handler signature never changes, so code written against it is portable regardless of which toolchain built it.
-
-The handler is stored in a `std::atomic<ViolationHandler>` — `set_violation_handler()` and concurrent contract checks from multiple threads are race-free. Verified with `tests/thread_safety_tests.cpp` under ThreadSanitizer (both GCC's and Clang's), stressing 4 concurrent writers against 4 concurrent readers; confirmed (by temporarily reverting to a bare pointer) that TSan actually catches a regression here within the first few iterations.
-
-### Testing contracts and exceptions: `expect_throws` / `expect_violation`
-
-Exceptions-only (see below) — for use in ordinary runtime unit tests, not inside `constexpr`:
-
-```cpp
-check(expect_violation([] { precondition(false); }, "precondition violated"),
-      "precondition(false) violates");
-check(expect_no_throw([] { precondition(true); }),
-      "precondition(true) passes");
-check(expect_throws([] { some_throwing_call(); }));
-check(expect_no_violation([] { precondition(true); }));
+expect_near(val<computed>, val<1.0>, val<0.0001>);  // |computed - 1.0| <= 0.0001
+expect_near<10, 12, 5>();                           // NTTP form
 ```
 
 ## `-fno-exceptions`
 
-Every failure path funnels through one function, `detail::fail_at_runtime()`. At compile time, calling it is what fails the enclosing `static_assert` (calling any non-`constexpr` function is ill-formed in a constant expression — this doesn't depend on exceptions being enabled at all). At genuine runtime: `throw`s when `__cpp_exceptions` is defined (the default, catchable, as you'd expect); otherwise prints the message to `stderr` and calls `std::abort()`. Verified directly against `xtensa-esp32-elf-g++`, `arm-none-eabi-g++`, and `riscv-none-elf-gcc` with `-fno-exceptions -fno-rtti` — see `docker/{esp32,stm32,riscv32}.Dockerfile`.
-
-`expect_throws`/`expect_no_throw`/`expect_violation`/`expect_no_violation` are contracts-only helpers, unavailable under `-fno-exceptions` (there's nothing for `try`/`catch` to do there) and compiled out entirely (`#if defined(__cpp_exceptions)`).
+Every failure path funnels through one function, `detail::fail_constant_eval()`. Calling it is what fails the enclosing `static_assert`: every `expect_*` is `consteval`, so it can only ever be invoked from a constant expression in the first place — attempting to call one at genuine runtime is a compile error, not a runtime failure, so there's no remaining call path that reaches `fail_constant_eval()`'s body at actual program runtime. It still needs an `__cpp_exceptions`-guarded `throw`/`std::abort()` split internally, because a `throw` statement is a hard compile error under `-fno-exceptions` at the point it's written, independent of whether it's ever reached — that's a build-configuration concern, not a runtime one. Cross-compiled and checked against `xtensa-esp32-elf-g++`, `arm-none-eabi-g++`, and `riscv-none-elf-gcc` with `-fno-exceptions -fno-rtti`; see `docker/{esp32,stm32,riscv32}.Dockerfile`.
 
 ## Building and testing this library
 
@@ -131,11 +95,11 @@ cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
 
-`CMAKE_CXX_STANDARD` is a request, not a requirement — CMake caps it to whatever the compiler actually supports (verified down to GCC 10, silently capped to `gnu++2a`).
+`CMAKE_CXX_STANDARD` is a request, not a requirement: CMake caps it to whatever the compiler actually supports (down to GCC 10, which gets silently capped to `gnu++2a`).
 
 Static analysis: `cmake -DCTUT_ENABLE_CLANG_TIDY=ON -DCTUT_ENABLE_CPPCHECK=ON ..` (both opt-in, auto-skip with a warning if the tool isn't installed), plus an always-registered `cmake --build build --target static_analysis` running the Clang Static Analyzer (`scan-build`) over the whole build.
 
-Compiler/platform matrix: see [`docker/README.md`](docker/README.md) — `docker/build-matrix.sh` builds every Dockerfile in `docker/` and reports pass/fail.
+Compiler/platform matrix: see [`docker/README.md`](docker/README.md). `docker/build-matrix.sh` builds every Dockerfile in `docker/` and reports pass/fail.
 
 ## License
 
