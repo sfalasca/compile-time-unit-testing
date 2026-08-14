@@ -44,8 +44,8 @@ constexpr int square(int x) { return x * x; }
 
 constexpr bool test_square() {
     using namespace CompileTimeUnitTesting;   // scoped to this function, not the whole file
-    expect_eq(val<square(3)>, val<9>);
-    expect_true(val<(square(-2) > 0)>);
+    expect_eq<square(3), 9>();
+    expect_true<(square(-2) > 0)>();
     return true;
 }
 
