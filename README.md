@@ -39,17 +39,17 @@ target_link_libraries(your_target PRIVATE compile_time_ut)
 
 ```cpp
 #include "compile_time_ut.hpp"
-using namespace CompileTimeUnitTesting;
 
 constexpr int square(int x) { return x * x; }
 
 constexpr bool test_square() {
+    using namespace CompileTimeUnitTesting;   // scoped to this function, not the whole file
     expect_eq(val<square(3)>, val<9>);
     expect_true(val<(square(-2) > 0)>);
     return true;
 }
 
-static_assert(test_square());   // fails the build if test_square() returns false
+static_assert(test_square());   // fails the build if any expect_* inside fails
 ```
 
 ## `expect_*` is compile-time-only, on purpose
