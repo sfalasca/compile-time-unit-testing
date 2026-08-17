@@ -25,8 +25,8 @@ The recommended way to consume this library is CMake's `FetchContent`:
 include(FetchContent)
 FetchContent_Declare(
     compile_time_ut
-    GIT_REPOSITORY <this-repo-url>
-    GIT_TAG        <commit-or-tag>
+    GIT_REPOSITORY https://github.com/sfalasca/compile-time-unit-testing.git
+    GIT_TAG        40415fc8a9568e8302b3d1433e7d8608e1683d32  # pin to a commit or tag of your choice
 )
 FetchContent_MakeAvailable(compile_time_ut)
 
