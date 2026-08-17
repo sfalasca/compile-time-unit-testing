@@ -1,0 +1,18 @@
+{
+  "name": "compile-time-unit-testing",
+  "version": "1.0.1",
+  "description": "Single-header C++20 library for compile-time unit testing: constexpr tests asserted with static_assert, with actual argument values shown in the compiler diagnostic on failure.",
+  "keywords": "testing, unit-testing, compile-time, constexpr, static_assert, header-only",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sfalasca/compile-time-unit-testing.git"
+  },
+  "license": "MIT",
+  "homepage": "https://falasca.engineering/compile-time-unit-testing/",
+  "frameworks": "*",
+  "platforms": "*",
+  "headers": "compile_time_ut.hpp",
+  "build": {
+    "includeDir": "include"
+  }
+}
