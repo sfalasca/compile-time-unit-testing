@@ -1,5 +1,7 @@
 # compile-time-unit-testing
 
+[![CI](https://github.com/sfalasca/compile-time-unit-testing/workflows/CI/badge.svg)](https://github.com/sfalasca/compile-time-unit-testing/actions/workflows/ci.yml)
+
 [Project page](https://falasca.engineering/compile-time-unit-testing/)
 
 A single-header C++20 library for compile-time unit testing: write an
